@@ -1,4 +1,4 @@
-﻿// FileConverter.cpp : 定义应用程序的入口点。
+// FileConverter.cpp : 定义应用程序的入口点。
 //
 
 #include "framework.h"
@@ -296,7 +296,7 @@ void BrowseInputFile(HWND hWnd)
     ofn.hwndOwner = hWnd;
     ofn.lpstrFile = szFile;
     ofn.nMaxFile = sizeof(szFile);
-    ofn.lpstrFilter = L"所有文件\0*.*\0文档文件\0*.docx;*.txt;*.rtf;*.html;*.md\0图片文件\0*.jpg;*.jpeg;*.png;*.bmp;*.gif;*.tiff\0音频文件\0*.mp3;*.wav;*.flac;*.aac;*.ogg\0";
+    ofn.lpstrFilter = L"所有文件\0*.*\0文档文件\0*.docx;*.txt;*.rtf;*.html;*.md;*.equb\0图片文件\0*.jpg;*.jpeg;*.png;*.bmp;*.gif;*.tiff\0音频文件\0*.mp3;*.wav;*.flac;*.aac;*.ogg\0";
     ofn.nFilterIndex = 1;
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
 
@@ -606,12 +606,27 @@ bool FileConverter::Convert()
 
 bool FileConverter::ConvertDocument()
 {
-    std::wstring toolPath = GetToolPath(L"pandoc.exe");
+    std::wstring pandocPath = GetToolPath(L"pandoc.exe");
+    std::wstring iconvPath = GetToolPath(L"iconv.exe");
 
     // 检查工具是否存在
-    if (_waccess(toolPath.c_str(), 0) != 0) {
+    if (_waccess(pandocPath.c_str(), 0) != 0) {
+#ifdef _DEBUG
+        OutputDebugStringW(L"Pandoc not found: ");
+        OutputDebugStringW(pandocPath.c_str());
+        OutputDebugStringW(L"\n");
+#endif
         return false;
     }
+
+    // 如果iconv不存在，直接使用pandoc（pandoc有内置编码处理）
+    bool useIconv = (_waccess(iconvPath.c_str(), 0) == 0);
+
+#ifdef _DEBUG
+    OutputDebugStringW(L"Use iconv: ");
+    OutputDebugStringW(useIconv ? L"true" : L"false");
+    OutputDebugStringW(L"\n");
+#endif
 
     // 映射输入输出格式
     std::wstring pandocInputFormat = inputFormat;
@@ -633,15 +648,131 @@ bool FileConverter::ConvertDocument()
         pandocOutputFormat = L"markdown";
     }
 
-    std::wstring command = L"\"" + toolPath + L"\" \"" + inputFile +
+    std::wstring finalInputFile = inputFile;
+    std::wstring tempFile;
+
+    // 如果iconv可用，尝试检测编码并转换
+    if (useIconv) {
+        tempFile = outputFile + L".temp_utf8";
+
+        // 常见编码列表
+        std::vector<std::wstring> encodings = {
+            // Unicode系列 
+            L"UTF-8", L"UTF-16", L"UTF-16LE", L"UTF-16BE",
+
+            // 中文编码
+            L"GBK", L"GB2312", L"GB18030", L"BIG5",
+            L"CP936", L"CP950",
+
+            // 日语编码
+            L"SHIFT_JIS", L"CP932", L"EUC-JP", L"ISO-2022-JP",
+
+            // 韩语编码
+            L"CP949", L"EUC-KR",
+
+            // 其他常见编码
+            L"ISO-8859-1", L"WINDOWS-1252"
+        };
+
+        bool conversionSuccess = false;
+
+        for (const auto& encoding : encodings) {
+            // 修复iconv命令行格式
+            std::wstring iconvCommand = L"\"" + iconvPath + L"\" -f " + encoding +
+                L" -t UTF-8 \"" + inputFile +
+                L"\" -o \"" + tempFile + L"\"";
+
+            STARTUPINFOW si = { sizeof(si) };
+            PROCESS_INFORMATION pi;
+            wchar_t cmdLine[1024];
+            wcscpy_s(cmdLine, iconvCommand.c_str());
+
+#ifdef _DEBUG
+            OutputDebugStringW(L"尝试编码: ");
+            OutputDebugStringW(encoding.c_str());
+            OutputDebugStringW(L" - 命令: ");
+            OutputDebugStringW(cmdLine);
+            OutputDebugStringW(L"\n");
+#endif
+
+            BOOL processCreated = CreateProcessW(
+                nullptr,
+                cmdLine,
+                nullptr,
+                nullptr,
+                FALSE,
+                CREATE_NO_WINDOW,
+                nullptr,
+                nullptr,
+                &si,
+                &pi
+            );
+
+            if (!processCreated) {
+#ifdef _DEBUG
+                OutputDebugStringW(L"创建进程失败\n");
+#endif
+                continue;
+            }
+
+            WaitForSingleObject(pi.hProcess, 10000); // 10秒超时
+            DWORD exitCode;
+            GetExitCodeProcess(pi.hProcess, &exitCode);
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+
+            // 检查转换是否成功
+            if (exitCode == 0 && _waccess(tempFile.c_str(), 0) == 0) {
+                FILE* testFile = nullptr;
+                errno_t openResult = _wfopen_s(&testFile, tempFile.c_str(), L"rb");
+
+                if (openResult == 0 && testFile != nullptr) {
+                    fseek(testFile, 0, SEEK_END);
+                    long fileSize = ftell(testFile);
+                    fclose(testFile);
+
+                    if (fileSize > 0) {
+                        conversionSuccess = true;
+                        finalInputFile = tempFile;
+
+#ifdef _DEBUG
+                        OutputDebugStringW(L"成功使用编码: ");
+                        OutputDebugStringW(encoding.c_str());
+                        OutputDebugStringW(L"\n");
+#endif
+                        break;
+                    }
+                }
+            }
+
+            // 删除失败的临时文件
+            DeleteFileW(tempFile.c_str());
+        }
+
+        // 如果所有编码尝试都失败，回退到直接使用原始文件
+        if (!conversionSuccess) {
+#ifdef _DEBUG
+            OutputDebugStringW(L"所有编码尝试失败，使用原始文件\n");
+#endif
+            finalInputFile = inputFile;
+        }
+    }
+
+    // 构建pandoc命令
+    std::wstring pandocCommand = L"\"" + pandocPath + L"\" \"" + finalInputFile +
         L"\" -f " + pandocInputFormat + L" -t " + pandocOutputFormat + L" -o \"" + outputFile + L"\"";
 
-    // 执行命令
+#ifdef _DEBUG
+    OutputDebugStringW(L"执行pandoc命令: ");
+    OutputDebugStringW(pandocCommand.c_str());
+    OutputDebugStringW(L"\n");
+#endif
+
+    // 执行pandoc
     STARTUPINFOW si = { sizeof(si) };
     PROCESS_INFORMATION pi;
-
     wchar_t cmdLine[1024];
-    wcscpy_s(cmdLine, command.c_str());
+    wcscpy_s(cmdLine, pandocCommand.c_str());
 
     BOOL success = CreateProcessW(
         nullptr,
@@ -649,23 +780,30 @@ bool FileConverter::ConvertDocument()
         nullptr,
         nullptr,
         FALSE,
-        0,
+        CREATE_NO_WINDOW,
         nullptr,
         nullptr,
         &si,
         &pi
     );
 
+    bool result = false;
+
     if (success) {
-        WaitForSingleObject(pi.hProcess, INFINITE);
+        WaitForSingleObject(pi.hProcess, 30000); // 30秒超时
         DWORD exitCode;
         GetExitCodeProcess(pi.hProcess, &exitCode);
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
-        return exitCode == 0;
+        result = (exitCode == 0);
     }
 
-    return false;
+    // 清理临时文件
+    if (!tempFile.empty() && _waccess(tempFile.c_str(), 0) == 0) {
+        DeleteFileW(tempFile.c_str());
+    }
+
+    return result;
 }
 
 bool FileConverter::ConvertImage()
@@ -764,7 +902,7 @@ std::vector<std::wstring> FileConverter::GetSupportedFormats(FileType type)
 
     switch (type) {
     case FILE_TYPE_DOCUMENT:
-        formats = { L"docx", L"txt", L"rtf", L"html", L"md" };
+        formats = { L"docx", L"txt", L"rtf", L"html", L"md",L"equb"};
         break;
     case FILE_TYPE_IMAGE:
         formats = { L"jpg", L"jpeg", L"png", L"bmp", L"gif", L"tiff" };
@@ -796,8 +934,8 @@ FileType FileConverter::DetectFileType(const std::wstring& filename)
     std::wstring ext = GetFileExtension(filename);
 
     // 文档格式
-    if (ext == L"docx" || ext == L"txt" || 
-        ext == L"rtf" || ext == L"html" || ext == L"md") {
+    if (ext == L"docx" || ext == L"txt" || ext == L"rtf" || 
+        ext == L"html" || ext == L"md" || ext == L"equb") {
         return FILE_TYPE_DOCUMENT;
     }
     // 图片格式
