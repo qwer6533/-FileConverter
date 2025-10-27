@@ -296,7 +296,7 @@ void BrowseInputFile(HWND hWnd)
     ofn.hwndOwner = hWnd;
     ofn.lpstrFile = szFile;
     ofn.nMaxFile = sizeof(szFile);
-    ofn.lpstrFilter = L"所有文件\0*.*\0文档文件\0*.docx;*.txt;*.rtf;*.html;*.md;*.equb\0图片文件\0*.jpg;*.jpeg;*.png;*.bmp;*.gif;*.tiff\0音频文件\0*.mp3;*.wav;*.flac;*.aac;*.ogg\0";
+    ofn.lpstrFilter = L"所有文件\0*.*\0文档文件\0*.docx;*.txt;*.rtf;*.html;*.md;*.epub\0图片文件\0*.jpg;*.jpeg;*.png;*.bmp;*.gif;*.tiff\0音频文件\0*.mp3;*.wav;*.flac;*.aac;*.ogg\0";
     ofn.nFilterIndex = 1;
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
 
@@ -902,7 +902,7 @@ std::vector<std::wstring> FileConverter::GetSupportedFormats(FileType type)
 
     switch (type) {
     case FILE_TYPE_DOCUMENT:
-        formats = { L"docx", L"txt", L"rtf", L"html", L"md",L"equb"};
+        formats = { L"docx", L"txt", L"rtf", L"html", L"md",L"epub"};
         break;
     case FILE_TYPE_IMAGE:
         formats = { L"jpg", L"jpeg", L"png", L"bmp", L"gif", L"tiff" };
@@ -935,7 +935,7 @@ FileType FileConverter::DetectFileType(const std::wstring& filename)
 
     // 文档格式
     if (ext == L"docx" || ext == L"txt" || ext == L"rtf" || 
-        ext == L"html" || ext == L"md" || ext == L"equb") {
+        ext == L"html" || ext == L"md" || ext == L"epub") {
         return FILE_TYPE_DOCUMENT;
     }
     // 图片格式
