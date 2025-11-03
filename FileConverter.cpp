@@ -806,47 +806,62 @@ bool FileConverter::ConvertDocument()
     return result;
 }
 
+void FileConverter::WriteToFile(void* context, void* data, int size)
+{
+    FILE* file = (FILE*)context;
+    fwrite(data, 1, size, file);
+}
+
 bool FileConverter::ConvertImage()
 {
-    // 使用stb_image进行图片转换
     int width, height, channels;
 
-    // 将宽字符串转换为多字节字符串（UTF-8）
-    int inputSize = WideCharToMultiByte(CP_UTF8, 0, inputFile.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    std::vector<char> inputBuffer(inputSize);
-    WideCharToMultiByte(CP_UTF8, 0, inputFile.c_str(), -1, inputBuffer.data(), inputSize, nullptr, nullptr);
+    // 使用宽字符打开输入文件
+    FILE* inputFilePtr = nullptr;
+    if (_wfopen_s(&inputFilePtr, inputFile.c_str(), L"rb") != 0 || !inputFilePtr) {
+        return false;
+    }
 
-    int outputSize = WideCharToMultiByte(CP_UTF8, 0, outputFile.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    std::vector<char> outputBuffer(outputSize);
-    WideCharToMultiByte(CP_UTF8, 0, outputFile.c_str(), -1, outputBuffer.data(), outputSize, nullptr, nullptr);
+    // 使用stbi_load_from_file加载图片
+    unsigned char* image_data = stbi_load_from_file(inputFilePtr, &width, &height, &channels, 0);
+    fclose(inputFilePtr);
 
-    // 加载图像
-    unsigned char* image_data = stbi_load(inputBuffer.data(), &width, &height, &channels, 0);
     if (!image_data) {
         return false;
     }
 
     bool success = false;
 
-    // 根据输出格式选择保存方式
-    if (outputFormat == L"jpg" || outputFormat == L"jpeg") {
-        success = stbi_write_jpg(outputBuffer.data(), width, height, channels, image_data, 90);
-    }
-    else if (outputFormat == L"png") {
-        success = stbi_write_png(outputBuffer.data(), width, height, channels, image_data, width * channels);
-    }
-    else if (outputFormat == L"bmp") {
-        success = stbi_write_bmp(outputBuffer.data(), width, height, channels, image_data);
-    }
-    else if (outputFormat == L"tga") {
-        success = stbi_write_tga(outputBuffer.data(), width, height, channels, image_data);
-    }
-    else {
-        // 不支持的格式，默认保存为PNG
-        success = stbi_write_png(outputBuffer.data(), width, height, channels, image_data, width * channels);
+    // 使用宽字符打开输出文件
+    FILE* outputFilePtr = nullptr;
+    if (_wfopen_s(&outputFilePtr, outputFile.c_str(), L"wb") != 0 || !outputFilePtr) {
+        stbi_image_free(image_data);
+        return false;
     }
 
-    // 释放图像数据
+    // 使用回调函数保存图片
+    stbi_write_func* writeFunc = [](void* context, void* data, int size) {
+        FILE* file = (FILE*)context;
+        fwrite(data, 1, size, file);
+    };
+
+    if (outputFormat == L"jpg" || outputFormat == L"jpeg") {
+        success = stbi_write_jpg_to_func(writeFunc, outputFilePtr, width, height, channels, image_data, 90);
+    }
+    else if (outputFormat == L"png") {
+        success = stbi_write_png_to_func(writeFunc, outputFilePtr, width, height, channels, image_data, width * channels);
+    }
+    else if (outputFormat == L"bmp") {
+        success = stbi_write_bmp_to_func(writeFunc, outputFilePtr, width, height, channels, image_data);
+    }
+    else if (outputFormat == L"tga") {
+        success = stbi_write_tga_to_func(writeFunc, outputFilePtr, width, height, channels, image_data);
+    }
+    else {
+        success = stbi_write_png_to_func(writeFunc, outputFilePtr, width, height, channels, image_data, width * channels);
+    }
+
+    fclose(outputFilePtr);
     stbi_image_free(image_data);
 
     return success;
