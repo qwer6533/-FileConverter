@@ -9,14 +9,14 @@
 #include <thread>
 #include <atomic>
 
-// 文件类型
+// 鏂囦欢绫诲瀷
 enum FileType {
     FILE_TYPE_DOCUMENT,
     FILE_TYPE_IMAGE,
     FILE_TYPE_AUDIO
 };
 
-// 转换器类
+// 鏂囦欢绫诲瀷
 class FileConverter {
 private:
     std::wstring inputFile;
@@ -26,7 +26,7 @@ private:
     std::wstring outputFormat;
     std::atomic<bool> isConverting;
     std::wstring GetExeDirectory();
-
+    static void WriteToFile(void* context, void* data, int size);
 public:
     FileConverter();
     ~FileConverter();
@@ -49,16 +49,16 @@ public:
     static std::wstring GetFileExtension(const std::wstring& filename);
     static FileType DetectFileType(const std::wstring& filename);
 
-    // 添加工具路径获取方法
+    // 娣诲姞宸ュ叿璺緞鑾峰彇鏂规硶
     std::wstring GetToolPath(const std::wstring& toolName);
 };
 
-// 全局变量
+// 鍏ㄥ眬鍙橀噺
 extern FileConverter g_Converter;
 extern HWND g_hProgressBar;
 extern HWND g_hStatusText;
 
-// 函数声明
+// 鍑芥暟澹版槑
 void CreateControls(HWND hWnd);
 void UpdateFormatComboBoxes(HWND hWnd, FileType fileType);
 void UpdateStatus(const std::wstring& status);
